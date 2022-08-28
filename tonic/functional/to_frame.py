@@ -1,5 +1,7 @@
+import pandas as pd
 import numpy as np
 import math
+
 from .slicing import (
     slice_by_time,
     slice_by_event_count,
@@ -17,6 +19,7 @@ def to_frame_numpy(
     n_event_bins=None,
     overlap=0.0,
     include_incomplete=False,
+    event_slices=None,
 ):
     """Accumulate events to frames by slicing along constant time (time_window),
     constant number of events (event_count) or constant number of frames (n_time_bins / n_event_bins).
@@ -34,7 +37,11 @@ def to_frame_numpy(
     Returns:
         numpy array with dimensions (TxPxHxW)
     """
-    assert "x" and "t" and "p" in events.dtype.names
+    assert (
+        "x" and "t" and "p" in events.columns
+        if isinstance(events, pd.DataFrame)
+        else ("x" and "t" and "p" in events.dtype.names)
+    )
 
     if (
         not sum(
@@ -47,35 +54,49 @@ def to_frame_numpy(
             "Please assign a value to exactly one of the parameters time_window,"
             " event_count, n_time_bins or n_event_bins."
         )
-        
+
     if not sensor_size:
         sensor_size_x = int(events["x"].max() + 1)
         sensor_size_p = len(np.unique(events["p"]))
-        if "y" in events.dtype.names:
+        if (
+            isinstance(events, pd.DataFrame)
+            and "y" in events.columns
+            or "y" in events.dtype.names
+        ):
             sensor_size_y = int(events["y"].max() + 1)
             sensor_size = (sensor_size_x, sensor_size_y, sensor_size_p)
         else:
             sensor_size = (sensor_size_x, 1, sensor_size_p)
-            
+
     # test for single polarity
     if sensor_size[2] == 1:
         events["p"] = 0
 
-    if time_window:
-        event_slices = slice_by_time(
-            events, time_window, overlap=overlap, include_incomplete=include_incomplete
-        )
-    elif event_count:
-        event_slices = slice_by_event_count(
-            events, event_count, overlap=overlap, include_incomplete=include_incomplete
-        )
-    elif n_time_bins:
-        event_slices = slice_by_time_bins(events, n_time_bins, overlap=overlap)
-    elif n_event_bins:
-        event_slices = slice_by_event_bins(events, n_event_bins, overlap=overlap)
+    if event_slices is None:
+        if time_window:
+            event_slices = slice_by_time(
+                events,
+                time_window,
+                overlap=overlap,
+                include_incomplete=include_incomplete,
+            )
+        elif event_count:
+            event_slices = slice_by_event_count(
+                events,
+                event_count,
+                overlap=overlap,
+                include_incomplete=include_incomplete,
+            )
+        elif n_time_bins:
+            event_slices = slice_by_time_bins(events, n_time_bins, overlap=overlap)
+        elif n_event_bins:
+            event_slices = slice_by_event_bins(events, n_event_bins, overlap=overlap)
 
-    
-    if "y" in events.dtype.names:
+    if (
+        isinstance(events, pd.DataFrame)
+        and "y" in events.columns
+        or "y" in events.dtype.names
+    ):
         frames = np.zeros((len(event_slices), *sensor_size[::-1]), dtype=np.int16)
         for i, event_slice in enumerate(event_slices):
             np.add.at(
@@ -84,7 +105,9 @@ def to_frame_numpy(
                 1,
             )
     else:
-        frames = np.zeros((len(event_slices), *sensor_size[1::-1]), dtype=np.int16)
+        frames = np.zeros(
+            (len(event_slices), sensor_size[2], sensor_size[0]), dtype=np.int16
+        )
         for i, event_slice in enumerate(event_slices):
             np.add.at(
                 frames,

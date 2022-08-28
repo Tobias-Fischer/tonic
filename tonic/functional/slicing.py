@@ -1,16 +1,17 @@
 import warnings
 import numpy as np
+import pandas as pd
 from tonic.slicers import (
     SliceByTime,
     SliceByEventCount,
     SliceAtIndices,
     SliceAtTimePoints,
 )
-from typing import List
+from typing import List, Union
 
 
 def slice_by_time(
-    events: np.ndarray,
+    events: Union[np.ndarray, pd.DataFrame],
     time_window: int,
     overlap: int = 0,
     include_incomplete: bool = False,
@@ -32,20 +33,35 @@ def slice_by_time(
     Returns:
         list of event slices (np.ndarray)
     """
-    assert "t" in events.dtype.names
+    assert (
+        "t" in events.columns
+        if isinstance(events, pd.DataFrame)
+        else "t" in events.dtype.names
+    )
 
     times = events["t"]
     stride = time_window - overlap
 
-    if include_incomplete:
-        n_slices = int(np.ceil(((times[-1] - times[0]) - time_window) / stride) + 1)
-    else:
-        n_slices = int(np.floor(((times[-1] - times[0]) - time_window) / stride) + 1)
+    last_time = times.iloc[-1] if isinstance(times, pd.Series) else times[-1]
+    begin_time = times.iloc[0] if isinstance(times, pd.Series) else times[0]
 
-    window_start_times = np.arange(n_slices) * stride + times[0]
+    if include_incomplete:
+        n_slices = int(np.ceil(((last_time - begin_time) - time_window) / stride) + 1)
+    else:
+        n_slices = int(np.floor(((last_time - begin_time) - time_window) / stride) + 1)
+
+    window_start_times = np.arange(n_slices) * stride + begin_time
     window_end_times = window_start_times + time_window
-    indices_start = np.searchsorted(times, window_start_times)
-    indices_end = np.searchsorted(times, window_end_times)
+    indices_start = (
+        times.searchsorted(window_start_times)
+        if isinstance(times, pd.Series)
+        else np.searchsorted(times, window_start_times)
+    )
+    indices_end = (
+        times.searchsorted(window_end_times)
+        if isinstance(times, pd.Series)
+        else np.searchsorted(times, window_end_times)
+    )
     return [events[indices_start[i] : indices_end[i]] for i in range(n_slices)]
 
 
@@ -65,17 +81,33 @@ def slice_by_time_bins(events: np.ndarray, bin_count: int, overlap: float = 0.0)
     Returns:
         list of event slices (np.ndarray)
     """
-    assert "t" in events.dtype.names
+    assert (
+        "t" in events.columns
+        if isinstance(events, pd.DataFrame)
+        else "t" in events.dtype.names
+    )
     assert overlap < 1
 
     times = events["t"]
-    time_window = times[-1] // bin_count * (1 + overlap)
+
+    last_time = times.iloc[-1] if isinstance(times, pd.Series) else times[-1]
+    begin_time = times.iloc[0] if isinstance(times, pd.Series) else times[0]
+
+    time_window = last_time // bin_count * (1 + overlap)
     stride = time_window * (1 - overlap)
 
-    window_start_times = np.arange(bin_count) * stride + times[0]
+    window_start_times = np.arange(bin_count) * stride + begin_time
     window_end_times = window_start_times + time_window
-    indices_start = np.searchsorted(times, window_start_times)
-    indices_end = np.searchsorted(times, window_end_times)
+    indices_start = (
+        times.searchsorted(window_start_times)
+        if isinstance(times, pd.Series)
+        else np.searchsorted(times, window_start_times)
+    )
+    indices_end = (
+        times.searchsorted(window_end_times)
+        if isinstance(times, pd.Series)
+        else np.searchsorted(times, window_end_times)
+    )
     return [events[indices_start[i] : indices_end[i]] for i in range(bin_count)]
 
 
